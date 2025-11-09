@@ -388,8 +388,8 @@ const createScheduledTaskEffect = (
   definition: ScheduledTaskDefinition
 ): Effect.Effect<ScheduledTaskRecord, Error> =>
   Effect.gen(function* (_) {
-    const taskId = randomUUID().replace(/-/g, "").slice(0, 16);
-    const jobName = `${config.namespace}_${sanitizeIdentifier(definition.name)}_${taskId}`;
+    const taskId = randomUUID();
+    const jobName = `${config.namespace}_${sanitizeIdentifier(definition.name)}_${taskId.replace(/-/g, "_")}`;
     const cronCommand = `SELECT core.run_scheduled_task('${taskId}')`;
 
     const jobResult = yield* _(withClient(config.pool, (client) =>

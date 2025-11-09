@@ -111,8 +111,8 @@ export class CoreSystem {
   }
 
   async createScheduledTask(definition: ScheduledTaskDefinition): Promise<ScheduledTaskRecord> {
-    const taskId = randomUUID().replace(/-/g, "").slice(0, 16);
-    const jobName = `${this.namespace}_${sanitizeIdentifier(definition.name)}_${taskId}`;
+    const taskId = randomUUID();
+    const jobName = `${this.namespace}_${sanitizeIdentifier(definition.name)}_${taskId.replace(/-/g, "_")}`;
     const cronCommand = `SELECT core.run_scheduled_task('${taskId}')`;
     const { rows: jobRows } = await this.db.query<{ job_id: number }>(
       `SELECT cron.schedule($1, $2, $3) AS job_id`,
