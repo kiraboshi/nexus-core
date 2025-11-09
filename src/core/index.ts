@@ -1,6 +1,6 @@
-export { CoreSystem } from "./system";
-export { CoreNode } from "./coreNode";
-export { ConsoleLogger, defaultLogger } from "./logger";
+export { CoreSystem } from "./system.ts";
+export { CoreNode } from "./coreNode.ts";
+export { ConsoleLogger, defaultLogger } from "./logger.ts";
 export type {
   CoreOptions,
   CoreLogger,
@@ -11,8 +11,8 @@ export type {
   ScheduledTaskDefinition,
   ScheduledTaskRecord,
   CoreMetricsSnapshot
-} from "./types";
+} from "./types.ts";
 
-export { makeCoreRuntime } from "./effect";
-export type { EffectCoreRuntime, EffectCoreNode } from "./effect";
+export { makeCoreRuntime } from "./effect.ts";
+export type { EffectCoreRuntime, EffectCoreNode } from "./effect.ts";
 

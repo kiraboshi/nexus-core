@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
-import { CoreSystem } from "../core";
+import { CoreSystem } from "../core/index.ts";
 
 dotenv.config();
 

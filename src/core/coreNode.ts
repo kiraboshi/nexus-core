@@ -1,11 +1,11 @@
-import { CoreSystem } from "./system";
+import { CoreSystem } from "./system.ts";
 import type {
   CoreLogger,
   EventEnvelope,
   EventHandler,
   ScheduledTaskDefinition
-} from "./types";
-import { nowIso, sleep } from "./utils";
+} from "./types.ts";
+import { nowIso, sleep } from "./utils.ts";
 
 type QueueMessageRow = {
   msg_id: number;
@@ -33,9 +33,7 @@ export class CoreNode {
   private readonly logger: CoreLogger;
   private readonly eventHandlers = new Map<string, Set<EventHandler>>();
   private isRunning = false;
-  private consumerActive = false;
   private heartbeatTimer: NodeJS.Timeout | null = null;
-  private consumerPromise: Promise<void> | null = null;
 
   constructor(config: CoreNodeConfig) {
     this.nodeId = config.nodeId;
@@ -48,9 +46,16 @@ export class CoreNode {
       return;
     }
     this.isRunning = true;
+    const queueName = this.system.getQueueName();
+    const eventTypes = Array.from(this.eventHandlers.keys());
+    this.logger.info("Core node started", { 
+      nodeId: this.nodeId, 
+      queueName,
+      eventTypes: eventTypes.length > 0 ? eventTypes : ["none"],
+      handlerCount: eventTypes.length
+    });
+    // Only start heartbeat - CoreSystem handles message consumption
     this.startHeartbeatLoop();
-    this.ensureConsumerLoop();
-    this.logger.info("Core node started", { nodeId: this.nodeId });
   }
 
   async stop(): Promise<void> {
@@ -58,14 +63,9 @@ export class CoreNode {
       return;
     }
     this.isRunning = false;
-    this.consumerActive = false;
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
-    }
-    if (this.consumerPromise) {
-      await this.consumerPromise;
-      this.consumerPromise = null;
     }
     this.logger.info("Core node stopped", { nodeId: this.nodeId });
   }
@@ -74,10 +74,32 @@ export class CoreNode {
     const handlers = this.eventHandlers.get(eventType) ?? new Set();
     handlers.add(handler as EventHandler);
     this.eventHandlers.set(eventType, handlers);
+    
+    // Register handler with CoreSystem's central registry
+    this.system.registerHandler(eventType, this.nodeId, handler as EventHandler);
+    
+    // Register subscription with nexus-core workers if enhanced mode
+    if (this.system.isWorkerModeEnabled()) {
+      this.system.getWorkerClient().subscribe(eventType).catch((error) => {
+        this.logger.error(
+          error instanceof Error ? error : new Error(String(error)),
+          { eventType, phase: "worker-subscription" }
+        );
+      });
+    }
+    
+    const queueName = this.system.getQueueName();
+    this.logger.info("Event handler registered", { 
+      nodeId: this.nodeId, 
+      eventType, 
+      queueName,
+      mode: this.system.isWorkerModeEnabled() ? "enhanced" : "standalone",
+      totalHandlers: this.eventHandlers.size
+    });
+    
+    // Start node (heartbeat) but don't start consumer - CoreSystem handles that
     if (!this.isRunning) {
       void this.start();
-    } else {
-      this.ensureConsumerLoop();
     }
   }
 
@@ -85,32 +107,60 @@ export class CoreNode {
     const handlers = this.eventHandlers.get(eventType);
     if (!handlers) return;
     handlers.delete(handler);
+    
+    // Unregister handler from CoreSystem's central registry
+    this.system.unregisterHandler(eventType, this.nodeId, handler);
+    
     if (handlers.size === 0) {
       this.eventHandlers.delete(eventType);
-      if (this.eventHandlers.size === 0) {
-        this.consumerActive = false;
-      }
     }
   }
 
-  async emit<TPayload = unknown>(eventType: string, payload: TPayload): Promise<number> {
+  async emit<TPayload = unknown>(eventType: string, payload: TPayload, options?: { broadcast?: boolean }): Promise<number> {
     const envelope: EventEnvelope = {
       namespace: this.system.namespace,
       eventType,
       payload,
       emittedAt: nowIso(),
-      producerNodeId: this.nodeId
+      producerNodeId: this.nodeId,
+      broadcast: options?.broadcast ?? false
     };
 
-    const { rows } = await this.system.getDatabase().query<{ send: number }>(
-      `SELECT pgmq.send($1, $2::jsonb)`,
-      [this.system.getQueueName(), envelope]
-    );
+    let messageId: number;
+    let routedQueues: string[] = [];
 
-    const messageId = rows[0]?.send ?? 0;
+    if (this.system.isWorkerModeEnabled()) {
+      // Enhanced mode: Route via nexus-core workers
+      routedQueues = await this.system.getWorkerClient().routeEvent(envelope);
+      messageId = routedQueues.length; // Return count of queues
+      this.logger.debug("Event routed via workers", {
+        eventType,
+        queueCount: routedQueues.length,
+        broadcast: envelope.broadcast
+      });
+    } else {
+      // Standalone mode: Direct queue send
+      if (envelope.broadcast) {
+        this.logger.warn("Broadcast not supported in standalone mode", { eventType });
+        // Fall back to normal send
+      }
+      
+      const { rows } = await this.system.getDatabase().query<{ send: number }>(
+        `SELECT pgmq.send($1, $2::jsonb)`,
+        [this.system.getQueueName(), envelope]
+      );
+      messageId = rows[0]?.send ?? 0;
+      routedQueues = [this.system.getQueueName()];
+    }
+
     envelope.messageId = messageId;
     await this.system.appendEventToLog(envelope);
-    this.logger.debug("Event emitted", { eventType, messageId });
+    this.logger.debug("Event emitted", {
+      eventType,
+      messageId,
+      mode: this.system.isWorkerModeEnabled() ? "enhanced" : "standalone",
+      queueCount: routedQueues.length
+    });
     return messageId;
   }
 
@@ -139,111 +189,5 @@ export class CoreNode {
     }, intervalMs).unref();
   }
 
-  private ensureConsumerLoop(): void {
-    if (!this.isRunning || this.consumerActive || this.eventHandlers.size === 0) {
-      return;
-    }
-    this.consumerActive = true;
-    this.consumerPromise = this.consumeLoop().finally(() => {
-      this.consumerActive = false;
-      this.consumerPromise = null;
-    });
-  }
-
-  private async consumeLoop(): Promise<void> {
-    const { idlePollIntervalMs = 1_000, visibilityTimeoutSeconds = 30, batchSize = 10 } =
-      this.system.getOptions();
-
-    while (this.isRunning && this.consumerActive) {
-      let rows: QueueMessageRow[] = [];
-      try {
-        const result = await this.system.getDatabase().query<QueueMessageRow>(
-          `SELECT * FROM pgmq.read($1, $2, $3)`,
-          [this.system.getQueueName(), visibilityTimeoutSeconds, batchSize]
-        );
-        rows = result.rows;
-      } catch (error) {
-        this.logger.error(
-          error instanceof Error ? error : new Error(String(error)),
-          { phase: "pgmq.read" }
-        );
-        await sleep(2_000);
-        continue;
-      }
-
-      if (!rows.length) {
-        await sleep(idlePollIntervalMs);
-        continue;
-      }
-
-      for (const row of rows) {
-        if (!this.isRunning || !this.consumerActive) {
-          break;
-        }
-
-        const envelope = this.decorateEnvelope(row);
-        const handlers = this.eventHandlers.get(envelope.eventType);
-
-        if (!handlers || handlers.size === 0) {
-          await this.moveToDeadLetter(row, `No handler for event ${envelope.eventType}`);
-          continue;
-        }
-
-        try {
-          await this.invokeHandlers(envelope);
-          await this.acknowledge(row.msg_id);
-        } catch (error) {
-          this.logger.error(error instanceof Error ? error : new Error(String(error)), {
-            eventType: envelope.eventType,
-            messageId: row.msg_id
-          });
-          await this.moveToDeadLetter(row, "Handler error", error);
-        }
-      }
-    }
-  }
-
-  private decorateEnvelope(row: QueueMessageRow): EventEnvelope {
-    const envelope = row.message ?? ({} as EventEnvelope);
-    envelope.namespace = envelope.namespace ?? this.system.namespace;
-    envelope.producerNodeId = envelope.producerNodeId ?? "unknown";
-    envelope.emittedAt = envelope.emittedAt ?? row.enqueued_at ?? nowIso();
-    envelope.messageId = row.msg_id;
-    envelope.redeliveryCount = row.read_ct;
-    return envelope;
-  }
-
-  private async invokeHandlers(envelope: EventEnvelope): Promise<void> {
-    const handlers = Array.from(this.eventHandlers.get(envelope.eventType) ?? []);
-    await this.system.getDatabase().withTransaction(async (client) => {
-      for (const handler of handlers) {
-        await Promise.resolve(handler(envelope, { client }));
-      }
-    });
-  }
-
-  private async acknowledge(messageId: number): Promise<void> {
-    await this.system.getDatabase().query(`SELECT pgmq.delete($1, $2)`, [this.system.getQueueName(), messageId]);
-  }
-
-  private async moveToDeadLetter(row: QueueMessageRow, reason: string, error?: unknown): Promise<void> {
-    const payload: DeadLetterPayload = {
-      originalEvent: this.decorateEnvelope(row),
-      reason,
-      failedAt: nowIso()
-    };
-
-    if (error) {
-      payload.error = error instanceof Error ? error.stack ?? error.message : String(error);
-    }
-
-    await this.system
-      .getDatabase()
-      .query(`SELECT pgmq.send($1, $2::jsonb)`, [this.system.getDeadLetterQueueName(), payload]);
-
-    await this.system
-      .getDatabase()
-      .query(`SELECT pgmq.delete($1, $2)`, [this.system.getQueueName(), row.msg_id]);
-  }
 }
 

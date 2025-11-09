@@ -1,4 +1,4 @@
-import type { CoreLogger } from "./types";
+import type { CoreLogger } from "./types.ts";
 
 export class ConsoleLogger implements CoreLogger {
   constructor(private readonly scope?: string) {}

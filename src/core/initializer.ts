@@ -1,7 +1,7 @@
-import type { CoreDatabase } from "./database";
-import type { CoreLogger } from "./types";
-import { defaultLogger } from "./logger";
-import { sanitizeIdentifier } from "./utils";
+import type { CoreDatabase } from "./database.ts";
+import type { CoreLogger } from "./types.ts";
+import { defaultLogger } from "./logger.ts";
+import { sanitizeIdentifier } from "./utils.ts";
 
 export class CoreInitializer {
   constructor(
@@ -206,55 +206,130 @@ export class CoreInitializer {
     const deadLetterQueueName = `${queueName}_dlq`;
     this.logger.info("Ensuring pgmq queues", { queueName, deadLetterQueueName });
     await this.db.usingClient(async (client) => {
-      await client.query(
-        `DO $$
-         BEGIN
-           PERFORM pgmq.create_queue($1);
-         EXCEPTION WHEN others THEN
-           -- queue already exists
-           PERFORM 1;
-         END;
-         $$;`,
-        [queueName]
-      );
+      // Create main queue - use parameterized query to avoid SQL injection
+      try {
+        await client.query(`SELECT pgmq.create($1::text)`, [queueName]);
+        this.logger.info("Created pgmq queue", { queueName });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Queue already exists is fine, ignore that error
+        if (errorMessage.includes("already exists") || errorMessage.includes("duplicate") || errorMessage.includes("already")) {
+          this.logger.debug("Queue already exists", { queueName });
+        } else {
+          this.logger.error("Failed to create queue", { queueName, error: errorMessage });
+          throw error;
+        }
+      }
 
-      await client.query(
-        `DO $$
-         BEGIN
-           PERFORM pgmq.create_queue($1);
-         EXCEPTION WHEN others THEN
-           PERFORM 1;
-         END;
-         $$;`,
-        [deadLetterQueueName]
-      );
+      // Create dead letter queue
+      try {
+        await client.query(`SELECT pgmq.create($1::text)`, [deadLetterQueueName]);
+        this.logger.info("Created pgmq dead letter queue", { deadLetterQueueName });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Queue already exists is fine, ignore that error
+        if (errorMessage.includes("already exists") || errorMessage.includes("duplicate") || errorMessage.includes("already")) {
+          this.logger.debug("Dead letter queue already exists", { deadLetterQueueName });
+        } else {
+          this.logger.error("Failed to create dead letter queue", { deadLetterQueueName, error: errorMessage });
+          throw error;
+        }
+      }
     });
   }
 
   private async ensurePartitioning(): Promise<void> {
-    this.logger.info("Ensuring pg_partman configuration for event_log");
+    this.logger.info("Ensuring partitions for event_log");
     await this.db.usingClient(async (client) => {
-      await client.query(`
-        DO $$
-        BEGIN
-          IF NOT EXISTS (
-            SELECT 1 FROM partman.part_config WHERE parent_table = 'core.event_log'
-          ) THEN
-            PERFORM partman.create_parent(
-              p_parent_table => 'core.event_log',
-              p_control => 'emitted_at',
-              p_type => 'native',
-              p_interval => 'monthly',
-              p_premake => 6,
-              p_retention => '6 months',
-              p_retention_keep_table => false
-            );
-          END IF;
-        EXCEPTION WHEN undefined_table THEN
-          RAISE NOTICE 'pg_partman not available, skipping partition setup';
-        END;
-        $$;
-      `);
+      // First, try to use pg_partman if available
+      let pgPartmanAvailable = false;
+      try {
+        await client.query(`SELECT 1 FROM partman.part_config LIMIT 1`);
+        pgPartmanAvailable = true;
+      } catch {
+        pgPartmanAvailable = false;
+      }
+
+      if (pgPartmanAvailable) {
+        try {
+          // Check if partition config exists
+          const configResult = await client.query<{ exists: boolean }>(
+            `SELECT EXISTS(
+              SELECT 1 FROM partman.part_config WHERE parent_table = 'core.event_log'
+            ) AS exists`
+          );
+          
+          const configExists = configResult.rows[0]?.exists ?? false;
+          
+          if (!configExists) {
+            this.logger.info("Creating pg_partman parent configuration");
+            await client.query(`
+              SELECT partman.create_parent(
+                p_parent_table => 'core.event_log',
+                p_control => 'emitted_at',
+                p_type => 'native',
+                p_interval => 'monthly',
+                p_premake => 6,
+                p_retention => '6 months',
+                p_retention_keep_table => false
+              );
+            `);
+          }
+          
+          // Run maintenance to ensure partitions are created
+          this.logger.info("Running pg_partman maintenance to create partitions");
+          await client.query(`SELECT partman.run_maintenance('core.event_log')`);
+          
+          // Verify at least one partition exists
+          const partitionCheck = await client.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count 
+             FROM pg_inherits 
+             WHERE inhparent = 'core.event_log'::regclass`
+          );
+          
+          if ((partitionCheck.rows[0]?.count ?? 0) > 0) {
+            this.logger.info("Partitions created successfully via pg_partman");
+            return;
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.warn("pg_partman setup failed, will create partition manually", { error: errorMessage });
+        }
+      }
+
+      // Fallback: Create partitions manually if pg_partman isn't available or failed
+      this.logger.info("Creating partitions manually");
+      
+      // Get current date and create partitions for current month and next few months
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      
+      // Create partitions for current month and next 6 months
+      for (let i = 0; i < 7; i++) {
+        const partitionDate = new Date(currentYear, currentMonth + i, 1);
+        const nextMonth = new Date(currentYear, currentMonth + i + 1, 1);
+        const partitionName = `core.event_log_${partitionDate.getFullYear()}_${String(partitionDate.getMonth() + 1).padStart(2, '0')}`;
+        const startDate = partitionDate.toISOString().split('T')[0];
+        const endDate = nextMonth.toISOString().split('T')[0];
+        
+        try {
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS ${partitionName}
+            PARTITION OF core.event_log
+            FOR VALUES FROM ('${startDate}') TO ('${endDate}');
+          `);
+          this.logger.debug("Created partition", { partitionName, startDate, endDate });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          // Ignore "already exists" errors
+          if (!errorMessage.includes("already exists") && !errorMessage.includes("duplicate")) {
+            this.logger.warn("Failed to create partition", { partitionName, error: errorMessage });
+          }
+        }
+      }
+      
+      this.logger.info("Partitions created manually");
     });
   }
 }

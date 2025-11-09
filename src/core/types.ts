@@ -18,6 +18,29 @@ export interface CoreOptions {
    * Maximum number of messages fetched per pgmq.read invocation. Defaults to 10.
    */
   batchSize?: number;
+  /**
+   * Enable enhanced features via nexus-core workers (optional).
+   * If true, requires workerApiEndpoint to be set.
+   * If false, uses standalone mode.
+   * If undefined, defaults to standalone mode.
+   */
+  enableWorkers?: boolean;
+  /**
+   * nexus-core worker API endpoint (for enhanced mode).
+   * Required if enableWorkers is true.
+   */
+  workerApiEndpoint?: string;
+  /**
+   * Worker ID for this application instance (for enhanced mode).
+   * Auto-generated if not provided.
+   */
+  workerId?: string;
+  /**
+   * Auto-detect if workers are available and enable enhanced mode.
+   * If true, attempts to connect to workerApiEndpoint.
+   * Falls back to standalone mode if workers are unavailable.
+   */
+  autoDetectWorkers?: boolean;
 }
 
 export interface CoreLogger {
@@ -43,6 +66,8 @@ export interface EventEnvelope<TPayload = unknown> {
   messageId?: number;
   scheduledTaskId?: string;
   redeliveryCount?: number;
+  /** If true, message will be delivered to all handlers across all nodes (fan-out/broadcast) */
+  broadcast?: boolean;
 }
 
 export type EventHandler<TPayload = unknown> = (

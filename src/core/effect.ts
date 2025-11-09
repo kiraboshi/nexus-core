@@ -19,8 +19,8 @@ import type {
   NodeRegistration,
   ScheduledTaskDefinition,
   ScheduledTaskRecord
-} from "./types";
-import { nowIso, sanitizeIdentifier } from "./utils";
+} from "./types.ts";
+import { nowIso, sanitizeIdentifier } from "./utils.ts";
 
 const toError = (error: unknown): Error => (error instanceof Error ? error : new Error(String(error)));
 
@@ -360,7 +360,7 @@ const appendEventLog = (config: CoreRuntimeConfig, envelope: EventEnvelope) =>
 const acknowledge = (config: CoreRuntimeConfig, messageId: number) =>
   withClient(config.pool, (client) =>
     Effect.tryPromise({
-      try: () => client.query(`SELECT pgmq.delete($1, $2)`, [config.queueName, messageId]),
+      try: () => client.query(`SELECT pgmq.delete($1::text, $2::bigint)`, [config.queueName, messageId]),
       catch: toError
     }).pipe(Effect.asVoid)
   );

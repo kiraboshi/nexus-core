@@ -1,6 +1,6 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import { defaultLogger } from "./logger";
-import type { CoreLogger } from "./types";
+import { defaultLogger } from "./logger.ts";
+import type { CoreLogger } from "./types.ts";
 
 export class CoreDatabase {
   private constructor(
