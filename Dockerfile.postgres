@@ -1,0 +1,72 @@
+# Dockerfile for PostgreSQL with required extensions
+FROM postgres:17
+
+# Install PGXN client and build dependencies
+# PGXN (PostgreSQL Extension Network) provides a unified way to install extensions
+
+# Step 1: Update package lists
+RUN apt-get update
+
+# Step 2: Install build dependencies
+RUN apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    postgresql-server-dev-17 \
+    libpq-dev
+
+# Step 3: Install Python and pip
+RUN apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel
+
+# Step 4: Verify pip3 is working
+RUN pip3 --version
+
+# Step 5: Install PGXN client
+# Python 3.13+ requires --break-system-packages flag due to PEP 668
+# This is safe in Docker containers where we have full control
+RUN pip3 install --no-cache-dir --break-system-packages pgxnclient
+
+# Step 6: Verify PGXN client installation
+RUN pgxn --version
+
+# Step 7: Install PostgreSQL extensions via apt packages
+# pg_cron and pg_partman are available as packages in PostgreSQL APT repository
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    postgresql-17-cron \
+    postgresql-17-partman \
+    && rm -rf /var/lib/apt/lists/*
+
+# Step 8: Install pgmq via PGXN (or build from source if PGXN fails)
+# pgmq is available via PGXN: https://pgxn.org/dist/pgmq/
+RUN pgxn install pgmq || \
+    (echo "PGXN install failed, building from source..." && \
+     cd /tmp && \
+     git clone --depth 1 https://github.com/pgmq/pgmq.git && \
+     cd pgmq/pgmq-extension && \
+     make && \
+     make install && \
+     cd / && \
+     rm -rf /tmp/pgmq)
+
+# Clean up build tools (keep pgxnclient for potential future use)
+# Step 11: Update package lists for cleanup
+RUN apt-get update
+
+# Step 12: Remove build tools
+RUN apt-get purge -y --auto-remove \
+    build-essential \
+    git \
+    postgresql-server-dev-17 \
+    libpq-dev
+
+# Step 13: Final cleanup
+RUN rm -rf /var/lib/apt/lists/*
+
+# Copy initialization script
+COPY docker/postgres-init.sh /docker-entrypoint-initdb.d/01-init-extensions.sh
+RUN chmod +x /docker-entrypoint-initdb.d/01-init-extensions.sh
+

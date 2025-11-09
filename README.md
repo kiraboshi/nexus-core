@@ -23,11 +23,48 @@ The `CoreInitializer` runs `CREATE EXTENSION IF NOT EXISTS` statements for each 
 
 ## Getting Started
 
+### Option 1: Docker/Containerd Setup (Recommended for Windows)
+
+The easiest way to get started on Windows is using Docker or containerd:
+
+```powershell
+# Start PostgreSQL with all extensions pre-installed
+.\scripts\setup-docker.ps1 -StartContainer
+
+# Or use docker-compose/nerdctl compose directly
+docker-compose up -d
+# OR (if using containerd)
+nerdctl compose up -d
+```
+
+The setup script automatically detects whether you're using Docker or containerd (via nerdctl).
+
+This will:
+- Build a custom PostgreSQL image with all required extensions
+- Start a container with the `core` database
+- Automatically install all extensions on first startup
+
+Connection details:
+- URL: `postgres://postgres:postgres@localhost:6543/core`
+- See `docker/README.md` for more details
+
+### Option 2: Local PostgreSQL Setup
+
+If you have PostgreSQL installed locally:
+
 ```bash
 npm install
 cp example.env .env        # adjust connection details
 npm run build
 ```
+
+**Installing Extensions:**
+
+- **Windows**: See `scripts/INSTALL_EXTENSIONS_WINDOWS.md`
+- **Linux/macOS**: Install via package manager (e.g., `apt-get install postgresql-17-cron`)
+- **Or use the installation script**: `.\scripts\install_extensions.ps1`
+
+### Environment Variables
 
 Environment variables (see `example.env`):
 
@@ -40,7 +77,7 @@ Environment variables (see `example.env`):
 ## Library Usage
 
 ```ts
-import { CoreSystem } from "./core";
+import { CoreSystem } from "@nexus-core/core";
 
 const system = await CoreSystem.connect({
   connectionString: process.env.CORE_DATABASE_URL!,
@@ -76,10 +113,16 @@ await node.scheduleTask({
 
 This registers metadata in `core.scheduled_tasks` and calls `cron.schedule` to execute `core.run_scheduled_task(uuid)` on the specified cadence.
 
-## Example Applications
+## Monorepo Structure
 
-- `src/apps/server.ts` — Fastify HTTP API that emits events via `POST /events` and exposes queue metrics at `GET /metrics`.
-- `src/apps/worker.ts` — Simple worker that consumes events, logs acknowledgements, and (optionally) schedules a heartbeat task.
+This project is organized as a monorepo with the following packages:
+
+- `packages/core` — Core library providing `CoreSystem`, `CoreNode`, and database abstractions
+- `packages/server` — Fastify HTTP API that emits events via `POST /events` and exposes queue metrics at `GET /metrics`
+- `packages/worker` — Simple worker that consumes events, logs acknowledgements, and (optionally) schedules a heartbeat task
+- `packages/nexus-cli` — Interactive CLI tool for database interrogation using a menu-driven interface
+
+## Example Applications
 
 Run them during development:
 
@@ -87,6 +130,21 @@ Run them during development:
 npm run dev:server
 npm run dev:worker
 ```
+
+## Nexus CLI
+
+The `nexus-cli` package provides an interactive terminal interface for quickly interrogating the database:
+
+```bash
+npm run nexus
+```
+
+Features:
+- Browse database tables and view data
+- Run SQL queries
+- View system metrics (queue depths, registered nodes)
+
+See `packages/nexus-cli/README.md` for more details.
 
 ## Benchmark Harness
 

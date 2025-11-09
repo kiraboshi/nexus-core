@@ -1,30 +1,24 @@
 {
-  "name": "core-test",
+  "name": "nexus-core",
   "version": "1.0.0",
-  "main": "dist/index.js",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev:server": "tsx watch src/apps/server.ts",
-    "dev:worker": "tsx watch src/apps/worker.ts",
-    "start:server": "node dist/apps/server.js",
-    "start:worker": "node dist/apps/worker.js",
-    "benchmark": "tsx src/benchmark/benchmark.ts"
+    "build": "npm run build --workspaces",
+    "dev:server": "npm run dev --workspace=@nexus-core/server",
+    "dev:worker": "npm run dev --workspace=@nexus-core/worker",
+    "start:server": "npm run start --workspace=@nexus-core/server",
+    "start:worker": "npm run start --workspace=@nexus-core/worker",
+    "cli": "npm run start --workspace=@nexus-core/nexus-cli"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
-  "dependencies": {
-    "dotenv": "^17.2.3",
-    "effect": "^3.18.4",
-    "fastify": "^5.6.1",
-    "pg": "^8.16.3"
-  },
   "devDependencies": {
-    "@types/dotenv": "^6.1.1",
     "@types/node": "^24.9.2",
-    "@types/pg": "^8.15.6",
-    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }

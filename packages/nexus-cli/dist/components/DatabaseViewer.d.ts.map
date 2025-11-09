@@ -1,0 +1,1 @@
+{"version":3,"file":"DatabaseViewer.d.ts","sourceRoot":"","sources":["../../src/components/DatabaseViewer.tsx"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,kBAAkB,CAAC;AAEnD,UAAU,mBAAmB;IAC3B,MAAM,EAAE,UAAU,CAAC;CACpB;AAQD,wBAAgB,cAAc,CAAC,EAAE,MAAM,EAAE,EAAE,mBAAmB,2CAyK7D"}

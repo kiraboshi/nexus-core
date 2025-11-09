@@ -1,0 +1,38 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    container_name: core-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: core
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+      # Configure pg_cron via environment (alternative to postgresql.conf)
+      POSTGRES_SHARED_PRELOAD_LIBRARIES: "pg_cron"
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=core
+    ports:
+      - "6543:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - core-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  core-network:
+    driver: bridge
+

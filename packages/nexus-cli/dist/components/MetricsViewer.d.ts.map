@@ -1,0 +1,1 @@
+{"version":3,"file":"MetricsViewer.d.ts","sourceRoot":"","sources":["../../src/components/MetricsViewer.tsx"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,kBAAkB,CAAC;AAEnD,UAAU,kBAAkB;IAC1B,MAAM,EAAE,UAAU,CAAC;CACpB;AAED,wBAAgB,aAAa,CAAC,EAAE,MAAM,EAAE,EAAE,kBAAkB,2CAiI3D"}
