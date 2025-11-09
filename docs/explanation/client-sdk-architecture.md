@@ -1,10 +1,17 @@
-# nexus-core Client SDK Architecture
+# Client SDK Architecture
+
+> **Note**: This document describes the proposed Client SDK architecture for enhanced mode. For current usage, see [Using Worker-Optional Mode](../how-to/worker-optional-mode.md).
 
 ## Overview
 
 nexus-core operates as a **two-tier architecture**:
 1. **nexus-core Workers** (Infrastructure Layer) - Handle routing, coordination, and complex requirements
 2. **Client SDK** (Application Layer) - Simple API for applications to emit events and register handlers
+
+**Related Documentation**:
+- [Worker-Optional Architecture](./worker-optional.md) - Overview of standalone vs enhanced modes
+- [Multi-Worker Architecture](./multi-worker-architecture.md) - Detailed multi-worker design
+- [Using Worker-Optional Mode](../how-to/worker-optional-mode.md) - How-to guide
 
 ## Architecture Layers
 

@@ -1,162 +1,133 @@
-# Core System Prototype
+# nexus-core
 
-TypeScript / Node.js prototype of a centrally managed workflow and eventing core built entirely on PostgreSQL primitives. The library exposes a simple integration surface that lets independently deployed services register as "nodes" inside a namespace, emit events, consume events, and schedule recurring tasks without relying on external brokers or schedulers.
+A PostgreSQL-native event-driven message bus system that provides publish-subscribe messaging, event logging, scheduled task execution, and node lifecycle management entirely within PostgreSQL.
 
-## Postgres Architecture
+## Features
 
-The system assumes a PostgreSQL database named `core` is available with the following extensions installed:
+- **PostgreSQL-Native**: No external dependencies (Redis, RabbitMQ, etc.)
+- **Event-Driven**: Publish and consume events with transactional guarantees
+- **Scheduled Tasks**: Cron-based recurring tasks that emit events
+- **Multi-Tenancy**: Namespace isolation for logical separation
+- **Dead Letter Queue**: Failed messages preserved for inspection/recovery
+- **Worker-Optional**: Standalone mode or enhanced mode with workers
 
-- `pgmq` — queue abstraction with visibility timeouts and dead-letter queues.
-- `pg_cron` — in-database job scheduling, used for cron-style triggers.
-- `pg_partman` — automated partition management for the `core.event_log` table.
-- `pg_stat_statements` — query-level observability.
+## Quick Start
 
-The `CoreInitializer` runs `CREATE EXTENSION IF NOT EXISTS` statements for each of these, so the connecting role must have sufficient privileges (e.g. superuser). It also installs helper functions, schedules table partitioning, and ensures the queues (`core_events_<namespace>`, `<namespace>_dlq`) exist.
-
-### Schema Highlights
-
-- `core.namespaces` — registered namespaces.
-- `core.nodes` — active nodes with heartbeat tracking.
-- `core.event_log` — partitioned append-only log of emitted events.
-- `core.scheduled_tasks` — metadata for pg_cron jobs that enqueue events.
-- `core.run_scheduled_task(uuid)` — invoked by cron to enqueue task payloads.
-
-## Getting Started
-
-### Option 1: Docker/Containerd Setup (Recommended for Windows)
-
-The easiest way to get started on Windows is using Docker or containerd:
+### Option 1: Docker (Recommended)
 
 ```powershell
 # Start PostgreSQL with all extensions pre-installed
 .\scripts\setup-docker.ps1 -StartContainer
 
-# Or use docker-compose/nerdctl compose directly
+# Or use docker-compose
 docker-compose up -d
-# OR (if using containerd)
-nerdctl compose up -d
 ```
 
-The setup script automatically detects whether you're using Docker or containerd (via nerdctl).
+Connection: `postgres://postgres:postgres@localhost:6543/core`
 
-This will:
-- Build a custom PostgreSQL image with all required extensions
-- Start a container with the `core` database
-- Automatically install all extensions on first startup
+See [Setting Up PostgreSQL](./docs/how-to/setup-postgres.md) for complete Docker setup instructions.
 
-Connection details:
-- URL: `postgres://postgres:postgres@localhost:6543/core`
-- See `docker/README.md` for more details
-
-### Option 2: Local PostgreSQL Setup
-
-If you have PostgreSQL installed locally:
+### Option 2: Local PostgreSQL
 
 ```bash
 npm install
-cp example.env .env        # adjust connection details
+cp example.env .env
 npm run build
 ```
 
-**Installing Extensions:**
+Install extensions (see [docs/how-to/setup-postgres.md](./docs/how-to/setup-postgres.md)).
 
-- **Windows**: See `scripts/INSTALL_EXTENSIONS_WINDOWS.md`
-- **Linux/macOS**: Install via package manager (e.g., `apt-get install postgresql-17-cron`)
-- **Or use the installation script**: `.\scripts\install_extensions.ps1`
+## Basic Usage
 
-### Environment Variables
-
-Environment variables (see `example.env`):
-
-- `CORE_DATABASE_URL` — Postgres URL, defaults to `postgres://postgres:postgres@localhost:5432/core`.
-- `CORE_NAMESPACE` — logical namespace grouping related nodes (defaults to `demo`).
-- `CORE_NODE_ID` — optional stable node identifier.
-- `PORT` — HTTP port for the sample server.
-- Worker / benchmark knobs (`CORE_WORKER_EVENT`, `CORE_WORKER_SCHEDULE`, `BENCH_TOTAL`, `BENCH_CONCURRENCY`).
-
-## Library Usage
-
-```ts
+```typescript
 import { CoreSystem } from "@nexus-core/core";
 
+// Connect to system
 const system = await CoreSystem.connect({
   connectionString: process.env.CORE_DATABASE_URL!,
-  namespace: "demo"
+  namespace: "myapp"
 });
 
+// Register a node
 const node = await system.registerNode({
-  displayName: "api",
-  metadata: { role: "producer" }
+  displayName: "My Node"
 });
 
-node.onEvent("demo.event", async (event, { client }) => {
-  await client.query("insert into acknowledgements(node_id, msg_id) values ($1, $2)", [
-    node.nodeId,
-    event.messageId
-  ]);
+// Register event handler
+node.onEvent("user.created", async (event, { client }) => {
+  console.log("User created:", event.payload);
 });
 
+// Start consuming
 await node.start();
-await node.emit("demo.event", { hello: "world" });
-```
 
-### Scheduling Tasks
-
-```ts
-await node.scheduleTask({
-  name: "cleanup",
-  cronExpression: "*/5 * * * *",
-  eventType: "maintenance.cleanup",
-  payload: { limit: 100 }
+// Emit event
+await node.emit("user.created", {
+  userId: "123",
+  email: "user@example.com"
 });
 ```
 
-This registers metadata in `core.scheduled_tasks` and calls `cron.schedule` to execute `core.run_scheduled_task(uuid)` on the specified cadence.
+## Documentation
+
+📚 **Complete documentation is available in the [`docs/`](./docs/) directory:**
+
+- **[Getting Started](./docs/tutorials/getting-started.md)** - Your first steps with nexus-core
+- **[How-to Guides](./docs/how-to/)** - Task-oriented instructions
+- **[API Reference](./docs/reference/api-reference.md)** - Complete API documentation
+- **[Architecture](./docs/explanation/architecture.md)** - System design and concepts
+
+See [docs/README.md](./docs/README.md) for the full documentation index.
 
 ## Monorepo Structure
 
-This project is organized as a monorepo with the following packages:
+- `packages/core` - Core library (`CoreSystem`, `CoreNode`, database abstractions)
+- `packages/server` - Fastify HTTP API (emits events via `POST /events`)
+- `packages/worker` - Simple worker (consumes events, logs acknowledgements)
+- `packages/nexus-cli` - Interactive CLI for database interrogation
 
-- `packages/core` — Core library providing `CoreSystem`, `CoreNode`, and database abstractions
-- `packages/server` — Fastify HTTP API that emits events via `POST /events` and exposes queue metrics at `GET /metrics`
-- `packages/worker` — Simple worker that consumes events, logs acknowledgements, and (optionally) schedules a heartbeat task
-- `packages/nexus-cli` — Interactive CLI tool for database interrogation using a menu-driven interface
-
-## Example Applications
-
-Run them during development:
+## Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Build all packages
+npm run build
+
+# Run example applications
 npm run dev:server
 npm run dev:worker
+
+# Run Nexus CLI
+npm run cli
+
+# Run benchmarks
+npm run benchmark
 ```
 
-## Nexus CLI
+## Environment Variables
 
-The `nexus-cli` package provides an interactive terminal interface for quickly interrogating the database:
+See `example.env` for all available options:
 
-```bash
-npm run nexus
-```
+- `CORE_DATABASE_URL` - PostgreSQL connection string
+- `CORE_NAMESPACE` - Namespace identifier (defaults to `demo`)
+- `CORE_NODE_ID` - Optional stable node identifier
+- `PORT` - HTTP port for server package
 
-Features:
-- Browse database tables and view data
-- Run SQL queries
-- View system metrics (queue depths, registered nodes)
+## Requirements
 
-See `packages/nexus-cli/README.md` for more details.
+- Node.js 18+
+- PostgreSQL 17+ with extensions:
+  - `pgmq` - Message queue functionality
+  - `pg_cron` - In-database job scheduling
+  - `pg_partman` - Automated partition management
+  - `pg_stat_statements` - Query performance monitoring
 
-## Benchmark Harness
+## License
 
-`npm run benchmark` sends a configurable burst of events and measures enqueue / dequeue throughput using in-process producer and consumer nodes. Tune concurrency and batch sizes with `BENCH_TOTAL` and `BENCH_CONCURRENCY`.
+ISC
 
-## Graceful Shutdown & Heartbeats
+## Contributing
 
-Each node maintains a heartbeat by calling `core.touch_node_heartbeat`. Consumers poll `pgmq.read` with configurable visibility timeout and batch size, move failures into a namespace-specific dead-letter queue, and wrap handler execution inside a single transaction to simplify side-effect management.
-
-## Next Steps
-
-- Harden schema migrations (ideally integrate with a migration tool instead of bootstrapping ad-hoc).
-- Layer richer metrics (e.g. using Prometheus) and alerting for DLQ backlogs.
-- Add integration tests that spin up ephemeral Postgres containers to validate queue behaviour end-to-end.
-
+Contributions welcome! Please open an issue or submit a pull request.

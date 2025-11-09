@@ -1,8 +1,16 @@
-# Database-Backed Event System: Core Functionality and Mechanisms
+# Technical Specification
+
+> **Note**: This is a comprehensive technical specification. For getting started guides, tutorials, and task-oriented documentation, see the [main documentation index](../README.md).
 
 ## System Overview
 
 This is a PostgreSQL-native event-driven message bus system that provides publish-subscribe messaging, event logging, scheduled task execution, and node lifecycle management entirely within PostgreSQL. The system uses PostgreSQL extensions (`pgmq`, `pg_cron`, `pg_partman`) to implement queue semantics, job scheduling, and partitioned event storage.
+
+**Related Documentation**:
+- [Architecture Overview](../explanation/architecture.md) - High-level system design
+- [Event Processing](../explanation/event-processing.md) - How events flow through the system
+- [Database Schema Reference](./database-schema.md) - Complete schema reference
+- [API Reference](./api-reference.md) - Complete API documentation
 
 ### Core Principles
 

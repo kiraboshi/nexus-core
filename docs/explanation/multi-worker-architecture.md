@@ -1,17 +1,19 @@
-# Multi-Worker Architecture Proposal
+# Multi-Worker Architecture
+
+> **Note**: This document describes the proposed multi-worker architecture for enhanced mode. For current usage, see [Using Worker-Optional Mode](../how-to/worker-optional-mode.md).
 
 ## Overview
 
-This document proposes how the nexus-core system can support multiple worker processes while maintaining reliable message delivery, fan-out capabilities, and load balancing.
+This document explains how the nexus-core system can support multiple worker processes while maintaining reliable message delivery, fan-out capabilities, and load balancing.
 
 **Key Design Principle**: nexus-core workers run as **infrastructure services** that handle routing and coordination. Applications use a **simple Client SDK** that abstracts away complexity.
 
-**Worker-Optional Design**: Applications can run in **standalone mode** (no workers) or **enhanced mode** (with workers). See [WORKER_OPTIONAL_ARCHITECTURE.md](./WORKER_OPTIONAL_ARCHITECTURE.md) for details.
+**Worker-Optional Design**: Applications can run in **standalone mode** (no workers) or **enhanced mode** (with workers). See [Worker-Optional Architecture](./worker-optional.md) for details.
 
-See also:
-- [CLIENT_SDK_ARCHITECTURE.md](./CLIENT_SDK_ARCHITECTURE.md) - Client SDK API details
-- [WORKER_OPTIONAL_ARCHITECTURE.md](./WORKER_OPTIONAL_ARCHITECTURE.md) - Worker-optional design
-- [USAGE_WORKER_OPTIONAL.md](./USAGE_WORKER_OPTIONAL.md) - Usage guide
+**Related Documentation**:
+- [Worker-Optional Architecture](./worker-optional.md) - Overview of standalone vs enhanced modes
+- [Client SDK Architecture](./client-sdk-architecture.md) - Client SDK API details
+- [Using Worker-Optional Mode](../how-to/worker-optional-mode.md) - Usage guide
 
 ## Current Architecture (Single Worker)
 
