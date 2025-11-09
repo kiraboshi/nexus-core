@@ -19,6 +19,18 @@ export class CoreInitializer {
             await client.query("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
             await client.query("CREATE EXTENSION IF NOT EXISTS pg_partman");
             await client.query("CREATE EXTENSION IF NOT EXISTS pgmq");
+            // Verify pgmq is installed and check function signatures
+            const { rows: extRows } = await client.query("SELECT extname, extversion FROM pg_extension WHERE extname = 'pgmq'");
+            if (extRows.length === 0) {
+                throw new Error("pgmq extension was not installed. Please check your database setup.");
+            }
+            // Check what create_queue functions exist
+            const { rows: funcRows } = await client.query(`SELECT proname, pg_get_function_arguments(oid) as args 
+         FROM pg_proc 
+         WHERE pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'pgmq') 
+         AND proname LIKE '%create%' 
+         ORDER BY proname`);
+            this.logger.debug("pgmq create functions found", { functions: funcRows });
         });
     }
     async ensureSchema() {
@@ -184,21 +196,26 @@ export class CoreInitializer {
         const deadLetterQueueName = `${queueName}_dlq`;
         this.logger.info("Ensuring pgmq queues", { queueName, deadLetterQueueName });
         await this.db.usingClient(async (client) => {
-            await client.query(`DO $$
-         BEGIN
-           PERFORM pgmq.create_queue($1);
-         EXCEPTION WHEN others THEN
-           -- queue already exists
-           PERFORM 1;
-         END;
-         $$;`, [queueName]);
-            await client.query(`DO $$
-         BEGIN
-           PERFORM pgmq.create_queue($1);
-         EXCEPTION WHEN others THEN
-           PERFORM 1;
-         END;
-         $$;`, [deadLetterQueueName]);
+            // pgmq uses pgmq.create() not pgmq.create_queue()
+            try {
+                await client.query(`SELECT pgmq.create($1::text)`, [queueName]);
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                // Queue already exists is fine, ignore that error
+                if (!errorMessage.includes("already exists") && !errorMessage.includes("duplicate")) {
+                    throw error;
+                }
+            }
+            try {
+                await client.query(`SELECT pgmq.create($1::text)`, [deadLetterQueueName]);
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                if (!errorMessage.includes("already exists") && !errorMessage.includes("duplicate")) {
+                    throw error;
+                }
+            }
         });
     }
     async ensurePartitioning() {

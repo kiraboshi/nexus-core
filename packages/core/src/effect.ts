@@ -255,7 +255,7 @@ const ensureQueues = (pool: Pool, namespace: string) => {
           client.query(
             `DO $$
              BEGIN
-               PERFORM pgmq.create_queue($1);
+               PERFORM pgmq.create($1);
              EXCEPTION WHEN others THEN
                PERFORM 1;
              END;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
 import { MainMenu } from "./components/MainMenu.js";
 import { DatabaseViewer } from "./components/DatabaseViewer.js";
@@ -17,25 +17,30 @@ export function App({ connectionString, namespace }: AppProps) {
   const [view, setView] = useState<View>("main");
   const [system, setSystem] = useState<CoreSystem | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
+  // Connect lazily when a view that needs the database is selected
+  const ensureConnected = useCallback(async () => {
+    if (system || connecting) return;
+    
+    setConnecting(true);
+    try {
+      const sys = await CoreSystem.connect({ connectionString, namespace });
+      setSystem(sys);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnecting(false);
+    }
+  }, [connectionString, namespace, system, connecting]);
+
+  // Connect when switching to a view that needs database
   useEffect(() => {
-    let mounted = true;
-    CoreSystem.connect({ connectionString, namespace })
-      .then((sys) => {
-        if (mounted) {
-          setSystem(sys);
-        }
-      })
-      .catch((err) => {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [connectionString, namespace]);
+    if (view !== "main" && !system && !connecting && !error) {
+      void ensureConnected();
+    }
+  }, [view, system, connecting, error, ensureConnected]);
 
   useInput((input, key) => {
     if (key.escape && view !== "main") {
@@ -43,16 +48,16 @@ export function App({ connectionString, namespace }: AppProps) {
     }
   });
 
-  if (error) {
+  if (error && view !== "main") {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="red">Error connecting to database: {error}</Text>
-        <Text>Press Ctrl+C to exit</Text>
+        <Text color="gray">Press ESC to go back to main menu</Text>
       </Box>
     );
   }
 
-  if (!system) {
+  if ((connecting || (!system && view !== "main")) && !error) {
     return (
       <Box padding={1}>
         <Text color="cyan">Connecting to database...</Text>
@@ -63,9 +68,9 @@ export function App({ connectionString, namespace }: AppProps) {
   return (
     <Box flexDirection="column" height="100%">
       {view === "main" && <MainMenu onSelect={setView} />}
-      {view === "database" && <DatabaseViewer system={system} />}
-      {view === "query" && <QueryRunner system={system} />}
-      {view === "metrics" && <MetricsViewer system={system} />}
+      {view === "database" && system && <DatabaseViewer system={system} />}
+      {view === "query" && system && <QueryRunner system={system} />}
+      {view === "metrics" && system && <MetricsViewer system={system} />}
     </Box>
   );
 }

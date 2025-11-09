@@ -175,7 +175,7 @@ const ensureQueues = (pool, namespace) => {
     const makeQueue = (name) => withClient(pool, (client) => Effect.tryPromise({
         try: () => client.query(`DO $$
              BEGIN
-               PERFORM pgmq.create_queue($1);
+               PERFORM pgmq.create($1);
              EXCEPTION WHEN others THEN
                PERFORM 1;
              END;

@@ -11,7 +11,9 @@ const EXAMPLE_QUERIES = [
   "SELECT * FROM pgmq.meta;",
   "SELECT COUNT(*) FROM core.event_log;",
   "SELECT * FROM core.scheduled_tasks;",
-  "SELECT namespace, COUNT(*) FROM core.event_log GROUP BY namespace;"
+  "SELECT namespace, COUNT(*) FROM core.event_log GROUP BY namespace;",
+  "SELECT proname, pg_get_function_arguments(oid) FROM pg_proc WHERE pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'pgmq') AND proname LIKE '%create%' ORDER BY proname;",
+  "SELECT extname, extversion FROM pg_extension WHERE extname = 'pgmq';"
 ];
 
 export function QueryRunner({ system }: QueryRunnerProps) {
